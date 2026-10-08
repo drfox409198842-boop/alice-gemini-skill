@@ -42,7 +42,7 @@ app.post('/api/webhook', async (req, res) => {
     
     // Используем актуальную модель gemini-3.8-flash с инструкцией отвечать кратко (для скорости)
     const model = genAI.getGenerativeModel({
-      model: 'gemini-3.8-flash',
+      model: 'gemini-1.5-flash',
       systemInstruction: 'Отвечай емко, кратко (не более 2-3 предложений), без списков и разметки markdown, так как твой ответ читает голосовой ассистент Алиса.'
     });
 
