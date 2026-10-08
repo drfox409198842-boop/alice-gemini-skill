@@ -31,7 +31,7 @@ app.post('/api/webhook', async (req, res) => {
       version,
       session,
       response: {
-        text: 'Ошибка: API-ключ Gemini не настроен на сервере.',
+        text: 'Ошибка: API-ключ не настроен.',
         end_session: false,
       },
     });
@@ -39,14 +39,22 @@ app.post('/api/webhook', async (req, res) => {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    
+    // Используем актуальную модель gemini-3.8-flash с инструкцией отвечать кратко (для скорости)
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-3.8-flash',
+      systemInstruction: 'Отвечай емко, кратко (не более 2-3 предложений), без списков и разметки markdown, так как твой ответ читает голосовой ассистент Алиса.'
+    });
 
-
+    // Делаем генерацию
     const result = await model.generateContent(userText);
     let reply = result.response.text().trim();
 
+    // Очищаем от возможных звездочек markdown для лучшей озвучки
+    reply = reply.replace(/[*#_`]/g, '');
+
     if (reply.length > 950) {
-      reply = reply.slice(0, 950) + '... (ответ сокращен)';
+      reply = reply.slice(0, 950) + '...';
     }
 
     return res.json({
@@ -63,7 +71,7 @@ app.post('/api/webhook', async (req, res) => {
       version,
       session,
       response: {
-        text: 'Не удалось получить ответ от нейросети. Попробуйте еще раз.',
+        text: 'Нейросеть сейчас перегружена запросами. Пожалуйста, повторите вопрос еще раз.',
         end_session: false,
       },
     });
