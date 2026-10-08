@@ -6,30 +6,6 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-let cachedModelName = null;
-
-async function getAvailableModel(apiKey) {
-  if (cachedModelName) return cachedModelName;
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    const data = await response.json();
-    if (data.models && Array.isArray(data.models)) {
-      const suitable = data.models.find(m => 
-        m.supportedGenerationMethods?.includes('generateContent') && 
-        (m.name.includes('flash') || m.name.includes('gemini'))
-      );
-      if (suitable) {
-        cachedModelName = suitable.name.replace('models/', '');
-        console.log('Automatically selected model:', cachedModelName);
-        return cachedModelName;
-      }
-    }
-  } catch (err) {
-    console.error('ListModels error:', err);
-  }
-  return 'gemini-pro';
-}
-
 app.get('/', (req, res) => {
   res.send('Alice Gemini Server is running!');
 });
@@ -61,40 +37,46 @@ app.post('/api/webhook', async (req, res) => {
     });
   }
 
-  try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = await getAvailableModel(apiKey);
-    const model = genAI.getGenerativeModel({ model: modelName });
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
 
-    const result = await model.generateContent(
-      `Ответь кратко (1-3 предложения), без спецсимволов и markdown: ${userText}`
-    );
-    let reply = result.response.text().trim();
-    reply = reply.replace(/[*#_`]/g, '');
-
-    if (reply.length > 950) {
-      reply = reply.slice(0, 950) + '...';
+  let reply = '';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const result = await model.generateContent(
+        `Ответь кратко (1-2 предложения), без списков и без markdown: ${userText}`
+      );
+      reply = result.response.text().trim();
+      break;
+    } catch (err) {
+      console.error(`Attempt ${attempt} error:`, err);
+      if (attempt === 2) {
+        return res.json({
+          version,
+          session,
+          response: {
+            text: 'Нейросеть сейчас сильно загружена. Спросите еще раз через пару секунд.',
+            end_session: false,
+          },
+        });
+      }
+      await new Promise((r) => setTimeout(r, 400));
     }
-
-    return res.json({
-      version,
-      session,
-      response: {
-        text: reply,
-        end_session: false,
-      },
-    });
-  } catch (error) {
-    console.error('Gemini error:', error);
-    return res.json({
-      version,
-      session,
-      response: {
-        text: 'Нейросеть сейчас обрабатывает запрос. Повторите еще раз.',
-        end_session: false,
-      },
-    });
   }
+
+  reply = reply.replace(/[*#_`]/g, '');
+  if (reply.length > 950) {
+    reply = reply.slice(0, 950) + '...';
+  }
+
+  return res.json({
+    version,
+    session,
+    response: {
+      text: reply,
+      end_session: false,
+    },
+  });
 });
 
 app.listen(PORT, () => {
