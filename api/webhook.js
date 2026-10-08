@@ -38,7 +38,7 @@ app.post('/api/webhook', async (req, res) => {
   }
 
   let responded = false;
-  // Страховка от таймаута Яндекса: если нейросеть думает дольше 2.7 сек, отвечаем сразу
+  // Яндекс держит соединение до 4.5 секунд, ставим отсечку на 4.2 секунды
   const timer = setTimeout(() => {
     if (!responded) {
       responded = true;
@@ -46,25 +46,24 @@ app.post('/api/webhook', async (req, res) => {
         version,
         session,
         response: {
-          text: 'Нейросеть долго генерирует ответ. Пожалуйста, повторите вопрос еще раз.',
+          text: 'Нейросеть генерирует ответ дольше обычного. Попробуйте спросить чуть короче.',
           end_session: false,
         },
       });
     }
-  }, 2700);
+  }, 4200);
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    // Бьем СРАЗУ в подтвержденную рабочую модель без задержек на перебор
     const model = genAI.getGenerativeModel({
       model: 'gemini-3.8-flash',
       generationConfig: {
-        maxOutputTokens: 100, // Очень короткий ответ = моментальная генерация
+        maxOutputTokens: 60,
       }
     });
 
     const result = await model.generateContent(
-      `Ответь Алисе предельно кратко (1-2 предложения), без списков и markdown: ${userText}`
+      `Ответь Алисе кратко одним предложением: ${userText}`
     );
     
     const reply = result.response.text().trim().replace(/[*#_`]/g, '');
@@ -90,7 +89,7 @@ app.post('/api/webhook', async (req, res) => {
         version,
         session,
         response: {
-          text: 'Нейросеть сейчас перегружена. Спросите еще раз через пару секунд.',
+          text: 'Нейросеть сейчас занята, повторите вопрос через несколько секунд.',
           end_session: false,
         },
       });
