@@ -6,6 +6,30 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+let cachedModelName = null;
+
+async function getAvailableModel(apiKey) {
+  if (cachedModelName) return cachedModelName;
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const data = await response.json();
+    if (data.models && Array.isArray(data.models)) {
+      const suitable = data.models.find(m => 
+        m.supportedGenerationMethods?.includes('generateContent') && 
+        (m.name.includes('flash') || m.name.includes('gemini'))
+      );
+      if (suitable) {
+        cachedModelName = suitable.name.replace('models/', '');
+        console.log('Automatically selected model:', cachedModelName);
+        return cachedModelName;
+      }
+    }
+  } catch (err) {
+    console.error('ListModels error:', err);
+  }
+  return 'gemini-pro';
+}
+
 app.get('/', (req, res) => {
   res.send('Alice Gemini Server is running!');
 });
@@ -39,18 +63,13 @@ app.post('/api/webhook', async (req, res) => {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // Используем актуальную модель gemini-3.8-flash с инструкцией отвечать кратко (для скорости)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      systemInstruction: 'Отвечай емко, кратко (не более 2-3 предложений), без списков и разметки markdown, так как твой ответ читает голосовой ассистент Алиса.'
-    });
+    const modelName = await getAvailableModel(apiKey);
+    const model = genAI.getGenerativeModel({ model: modelName });
 
-    // Делаем генерацию
-    const result = await model.generateContent(userText);
+    const result = await model.generateContent(
+      `Ответь кратко (1-3 предложения), без спецсимволов и markdown: ${userText}`
+    );
     let reply = result.response.text().trim();
-
-    // Очищаем от возможных звездочек markdown для лучшей озвучки
     reply = reply.replace(/[*#_`]/g, '');
 
     if (reply.length > 950) {
@@ -71,7 +90,7 @@ app.post('/api/webhook', async (req, res) => {
       version,
       session,
       response: {
-        text: 'Нейросеть сейчас перегружена запросами. Пожалуйста, повторите вопрос еще раз.',
+        text: 'Нейросеть сейчас обрабатывает запрос. Повторите еще раз.',
         end_session: false,
       },
     });
