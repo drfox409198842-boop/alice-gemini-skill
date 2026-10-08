@@ -6,6 +6,15 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+// Список моделей по приоритету: от быстрых к стабильным резервным
+const CANDIDATE_MODELS = [
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash-8b',
+  'gemini-3.8-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro'
+];
+
 app.get('/', (req, res) => {
   res.send('Alice Gemini Server is running!');
 });
@@ -31,49 +40,45 @@ app.post('/api/webhook', async (req, res) => {
       version,
       session,
       response: {
-        text: 'Ошибка: API-ключ не настроен.',
+        text: 'API-ключ не найден в переменных окружения.',
         end_session: false,
       },
     });
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: 'gemini-3.8-flash' });
+  let replyText = null;
 
-  let reply = '';
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Автоматический каскадный перебор моделей без падений
+  for (const modelName of CANDIDATE_MODELS) {
     try {
-      const result = await model.generateContent(
-        `Ответь кратко (1-2 предложения), без списков и без markdown: ${userText}`
-      );
-      reply = result.response.text().trim();
-      break;
-    } catch (err) {
-      console.error(`Attempt ${attempt} error:`, err);
-      if (attempt === 2) {
-        return res.json({
-          version,
-          session,
-          response: {
-            text: 'Нейросеть сейчас сильно загружена. Спросите еще раз через пару секунд.',
-            end_session: false,
-          },
-        });
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const prompt = `Ответь кратко (1-2 емких предложения), без списков и markdown-разметки: ${userText}`;
+      
+      const result = await model.generateContent(prompt);
+      const text = result?.response?.text();
+      
+      if (text) {
+        replyText = text.trim().replace(/[*#_`]/g, '');
+        console.log(`Success with model: ${modelName}`);
+        break; // Успешно получили ответ, выходим из цикла
       }
-      await new Promise((r) => setTimeout(r, 400));
+    } catch (err) {
+      console.warn(`Model ${modelName} failed, switching to next fallback...`);
     }
   }
 
-  reply = reply.replace(/[*#_`]/g, '');
-  if (reply.length > 950) {
-    reply = reply.slice(0, 950) + '...';
+  if (!replyText) {
+    replyText = 'Сервис нейросети временно недоступен. Попробуйте еще раз через минуту.';
+  } else if (replyText.length > 950) {
+    replyText = replyText.slice(0, 950) + '...';
   }
 
   return res.json({
     version,
     session,
     response: {
-      text: reply,
+      text: replyText,
       end_session: false,
     },
   });
